@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -28,6 +29,10 @@ public class Player : MonoBehaviour
 
     private LineRenderer rope;
 
+    public AudioSource splashAudioSource;
+    public AudioSource waterAudioSource;
+    public float waterAudioVolume;
+
     private void Start()
     {
         Cursor.visible = false;
@@ -51,6 +56,31 @@ public class Player : MonoBehaviour
         SwivelCamera();
         UpdateRopePosition();
     }
+
+    private bool volumeChanging = false;
+
+    private IEnumerator UpdateWaterVolume(bool raiseVolume)
+    {
+        volumeChanging = true;
+
+        float duration = 0.2f;
+        float timer = 0f;
+
+        float start = waterAudioSource.volume;
+        float target = raiseVolume ? 1f : 0f;
+
+        while (timer < duration)
+        {
+            timer += Time.deltaTime;
+            float t = timer / duration;
+            waterAudioSource.volume = Mathf.Lerp(start, target, t);
+            yield return null;
+        }
+
+        waterAudioSource.volume = target;
+        volumeChanging = false;
+    }
+
 
     private void RotateCamera()
     {
@@ -122,14 +152,39 @@ public class Player : MonoBehaviour
     public float fallMultiplier = 2f;
     public float riseMultiplier = 1.5f;
     public bool inAir;
+    public bool wasInAir;
+    public float splashVelocityThreshold = -5f;
 
     private void UpdateVerticalPosition()
     {
         Vector3 vel = rb.linearVelocity;
         float displacement = transform.position.y - waterHeight;
 
+        // store previous state
+        wasInAir = inAir;
+
         // --- Check if airborne ---
         inAir = transform.position.y > waterHeight + 0.1f;
+
+        // --- TAKEOFF ---
+        if (!wasInAir && inAir)
+        {
+            StartCoroutine(UpdateWaterVolume(false)); // fade OUT
+        }
+
+        // --- LANDING ---
+        if (wasInAir && !inAir)
+        {
+            StartCoroutine(UpdateWaterVolume(true)); // fade IN
+        }
+
+        // --- LANDING DETECTION ---
+        if (wasInAir && !inAir && vel.y < splashVelocityThreshold)
+        {
+            float impact = Mathf.Abs(vel.y);
+            splashAudioSource.volume = Mathf.Clamp01(impact / 15f);
+            splashAudioSource.Play();
+        }
 
         // --- Apply spring + damping only in water ---
         if (!inAir)
@@ -162,9 +217,16 @@ public class Player : MonoBehaviour
         }
     }
 
+    public AudioSource jumpAudioSource;
+
     private void JumpPlayer(float multiplier)
     {
         rb.AddForce(new Vector3(0.0f, Mathf.Abs(rb.linearVelocity.x) * multiplier, 0.0f), ForceMode.Impulse);
+        if (MathF.Abs(multiplier) > 0.5)
+        {
+            jumpAudioSource.volume = MathF.Abs(rb.linearVelocity.x) / 40.0f;
+            jumpAudioSource.Play();
+        }
     }
 
     public float cameraTurnMax;
